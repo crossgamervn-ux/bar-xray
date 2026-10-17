@@ -21,9 +21,11 @@ Prerequisites: Windows x64, 64-bit Python 3.11+, an x64 MinGW-w64 GCC toolchain,
 From the repository root, in PowerShell:
 
 ```powershell
-.untime
+.
+untime
 ativeuild.ps1 -Toolchain 'C:\msys64\mingw64\bin'
-python .untime\demo.py --help
+python .
+untime\demo.py --help
 ```
 
 Use the appropriate path to your 64-bit Python if `python` resolves to another installation.
@@ -32,21 +34,25 @@ Use the appropriate path to your 64-bit Python if `python` resolves to another i
 2. Record the baseline:
 
 ```powershell
-python .untime\demo.py status
+python .
+untime\demo.py status
 ```
 
 3. Enable the retained AX transition:
 
 ```powershell
-python .untime\demo.py on
+python .
+untime\demo.py on
 ```
 
 4. Observe the world view and inspect the printed `value`, `full_read`, `read_ally_team`, and `ctrl_team`. Compare with the baseline. This readback alone is not a visual test.
 5. Disable and record restoration:
 
 ```powershell
-python .untime\demo.py off
-python .untime\demo.py status
+python .
+untime\demo.py off
+python .
+untime\demo.py status
 ```
 
 `--pid <PID>` can explicitly select a test process. Without it, exactly one `spring.exe` must be running.

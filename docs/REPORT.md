@@ -1,8 +1,8 @@
 # Private security report: client-side fog-of-war disclosure through spectator view state
 
-Prepared: 17 October 2026  
-Reporter / in-game nickname: CrossGamer (Discord: @Cross)  
-Contact: existing private Discord ticket; account email not provided  
+Prepared: 17 October 2026
+Reporter / in-game nickname: CrossGamer (Discord: @Cross)
+Contact: existing private Discord ticket; account email not provided
 Intended recipients: BAR / Recoil Engine maintainers
 tôi## Summary
 
