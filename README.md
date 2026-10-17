@@ -1,95 +1,105 @@
-# AX / Recoil fog-of-war report and reproduction source
+# AX: how the full-view change works
 
-Technical material submitted by CrossGamer for BAR/Recoil maintainers. Start with [the report](docs/REPORT.md) and [recorded evidence](evidence/recorded-checks.json).
+I made AX while tracing BAR/Recoil's visibility code. The main finding was that changing the local full-view flag and running the engine's existing refresh functions also changed what LuaUI could read.
 
-## Exact reference build
+The important part is in [view_refresh_v2.cpp](runtime/native/view_refresh_v2.cpp). Start there, especially `callback()`. The widget is just an on/off button.
 
-Windows x64, documented locally as **Recoil 2026.07.04**. Executable SHA-256:
+## What the C++ does
 
-`2b5362606e697d9f81bdb8cda7ecad9951957d9de8ad516f79f337d905351e3b`
+The DLL receives a requested value through shared memory. Its callback waits until it is running on the engine thread recorded by the resident bridge, outside the synced context. It then does three things:
 
-The hash, not a folder name or release label, is the compatibility check. No current-version support is claimed. The engine binary and game content are not included. Obtain the reference build from the maintainers or their official archive; do not change the expected hash merely to bypass the check.
-
-## What this reproduces
-
-The retained native implementation changes the client field identified as `gu->spectatingFullView`, calls `CLuaUI::UpdateTeams()`, then `CUnitDrawerData::PlayerChanged()`. Recorded diagnostics include a non-spectator state with full-view/full-read enabled. This does not prove that simulation LOS changes, another client's display changes, or the modification cannot be detected.
-
-## Build and run in a developer-controlled test match
-
-Prerequisites: Windows x64, 64-bit Python 3.11+, an x64 MinGW-w64 GCC toolchain, and the **exact reference executable**. No third-party Python packages are needed. MinHook sources and their license are included.
-
-From the repository root, in PowerShell:
-
-```powershell
-.
-untime
-ativeuild.ps1 -Toolchain 'C:\msys64\mingw64\bin'
-python .
-untime\demo.py --help
+```cpp
+// Names below describe the objects identified during analysis.
+gu->spectatingFullView = requestedValue;
+CLuaUI::UpdateTeams();
+unitDrawerData->PlayerChanged(localPlayerID);
 ```
 
-Use the appropriate path to your 64-bit Python if `python` resolves to another installation.
+This is a readable summary, not the literal code. The original implementation uses addresses relative to the loaded executable and offsets into the engine objects.
 
-1. Start an isolated test match on the reference engine, as a normal player. Put test enemy units outside the player's LOS/radar. Keep the game running/rendering and detach debuggers before loading hooks.
-2. Record the baseline:
+**The first write changes the view flag.** It does not set `gu->spectating` or turn the player into a spectator.
 
-```powershell
-python .
-untime\demo.py status
+**`CLuaUI::UpdateTeams()` refreshes the LuaUI context.** In the saved checks, turning AX on changed `full_read` to true and `read_ally_team` to `-2`, while the control team stayed unchanged.
+
+**`CUnitDrawerData::PlayerChanged()` refreshes drawing/icon state.** Changing only the flag was not enough to refresh all the presentation. The later version added this call. The PIP minimap also needed a separate widget adjustment and a LuaUI reload in the historical test.
+
+So the core is a write to engine state followed by two existing engine functions. It is not a replacement renderer, and it is not just a single patched instruction.
+
+## How the hook runs
+
+`OpStart()` checks the expected function bytes, opens the resident bridge's shared memory, creates the AX request/result mapping, and installs a MinHook hook on the callback identified as `GetRenderFeaturesDrawFlagChanged`.
+
+When a request is pending, `callback()` checks the thread, request deadline, pointers, and synced-context state. It applies the change, writes the result back, then calls the original function. It only changes the view when requested; it does not continuously force the flag on.
+
+The separate [bridge.cpp](runtime/native/bridge.cpp) supplies the engine-thread identity used by this check. Its original unit-order code is still in the file, but the AX demo does not submit unit orders.
+
+## Main files
+
+| File | Purpose |
+|---|---|
+| [view_refresh_v2.cpp](runtime/native/view_refresh_v2.cpp) | Changes the full-view flag and calls the LuaUI/render refresh functions. |
+| [bridge.cpp](runtime/native/bridge.cpp) | Resident bridge used to identify the engine thread. |
+| [ax_control.py](runtime/ax_control.py) | Sends the requested toggle through shared memory and reads the state back. |
+| [native_client.py](runtime/native_client.py) | Loads the DLLs and opens the resident bridge mapping. |
+| [engine_support.py](runtime/engine_support.py) | Finds the process, checks its executable, and reads engine memory. |
+| [demo.py](runtime/demo.py) | Small command-line entry point for `status`, `on`, and `off`. |
+| [ax.lua](reference/widgets/ax.lua) | Original widget frontend. Not needed for the command-line demo. |
+| [gui_pip.lua](reference/widgets/gui_pip.lua) | Historical compatibility adjustment for the game's PIP widget. |
+
+The command-line flow is:
+
+```text
+ demo.py
+   -> ax_control.py
+   -> shared-memory request
+   -> view_refresh_v2.cpp callback
+   -> full-view write + UpdateTeams + PlayerChanged
+   -> shared-memory result
+   -> Python reads the engine state again
 ```
 
-3. Enable the retained AX transition:
+The original widget reached the same Python handler through a local bridge service. The command-line version skips that UI/service setup.
 
-```powershell
-python .
-untime\demo.py on
+## What was recorded
+
+One saved diagnostic contains:
+
+```text
+spectating      = 0
+full_view       = 1
+full_read       = 1
+ctrl_team       = 0
+select_team     = 0
+read_team       = -2
+read_ally_team  = -2
 ```
 
-4. Observe the world view and inspect the printed `value`, `full_read`, `read_ally_team`, and `ctrl_team`. Compare with the baseline. This readback alone is not a visual test.
-5. Disable and record restoration:
+A separate OFF/ON/OFF check kept `ctrl_team=12` throughout. Another refresh check counted 8 invalid icon entries before the refresh and 0 afterward, in a list of 9 units.
+
+These are separate checks. The original values are in [recorded-checks.json](evidence/recorded-checks.json). They show local state changes; they do not establish what the server or other clients observed.
+
+## Build and try it
+
+The retained code targets **Windows x64, Recoil 2026.07.04**, with a specific executable fingerprint checked by `engine_support.py`. The offsets are not portable to another build.
+
+You need 64-bit Python and an x64 MinGW-w64 GCC toolchain. MinHook is included. From the repository root:
 
 ```powershell
-python .
-untime\demo.py off
-python .
-untime\demo.py status
+.\runtime\native\build.ps1 -Toolchain 'C:\msys64\mingw64\bin'
 ```
 
-`--pid <PID>` can explicitly select a test process. Without it, exactly one `spring.exe` must be running.
+Start a developer-controlled match with the matching engine, then run:
 
-`status` only reads state and does not inject DLLs. `on`/`off` load the original resident bridge if needed, wait for its engine-thread identity, then use the original AX control path. This wrapper sends no unit commands and starts no network service. The retained bridge source still contains its original order-handling implementation, although the demo does not use it.
+```powershell
+python .\runtime\demo.py status
+python .\runtime\demo.py on
+python .\runtime\demo.py off
+```
 
-The DLLs remain loaded after `off`; exit the test game to unload the hooks. After an initialization failure or a DLL rebuild, restart the game instead of reinjecting into the same process. The toggle is not a general-purpose restoration of every possible pre-existing spectator configuration: record baseline state and use a fresh normal-player test match.
+`status` only reads state. `on` and `off` load the required DLLs if needed. Use `--pid <PID>` if more than one game process is running. Exit the game to unload the hooks; `off` only changes the view state back.
 
-## Files and reading order
+Both DLLs compile from the files in this repo. The new CLI wrapper has not been tested in a live match since the game was uninstalled; the saved evidence comes from the earlier AX implementation. The widget files are included for reference and are not required to run the CLI.
 
-- [docs/REPORT.md](docs/REPORT.md): historical investigation, observations and limitations.
-- [evidence/recorded-checks.json](evidence/recorded-checks.json): separate historical checks with PID/raw addresses removed.
-- [runtime/native/view_refresh_v2.cpp](runtime/native/view_refresh_v2.cpp): native mutation and refresh, especially `callback()` and `OpStart()`.
-- [runtime/ax_control.py](runtime/ax_control.py): request serialization, shared-memory control and readback.
-- [runtime/demo.py](runtime/demo.py): new standalone reproduction wrapper; replaces the original UI/server orchestration for this package.
-- [runtime/engine_support.py](runtime/engine_support.py): executable hash verification, process discovery and reads.
-- [runtime/native_client.py](runtime/native_client.py): original DLL loading and resident bridge transport.
-- [runtime/native/bridge.cpp](runtime/native/bridge.cpp): original resident bridge supplying the engine-thread identity.
-- [reference/widgets/ax.lua](reference/widgets/ax.lua): original frontend for reference only. It uses a placeholder token and the old external OP infrastructure, not the standalone CLI.
-- [reference/widgets/gui_pip.lua](reference/widgets/gui_pip.lua): historical PIP compatibility shim, optional and dependent on the matching game's original widget. Not required for the core world-view test. It is not installed automatically.
-- [docs/HISTORICAL-NOTES-VI.md](docs/HISTORICAL-NOTES-VI.md): original Vietnamese notes; some refer to earlier TCP transport or separate tests.
+---
 
-The original full path was UI -> local IPC/Python handler -> shared memory -> DLL callback -> engine state/readback. The standalone wrapper begins at the Python handler, eliminating the widget, authentication token, and IPC service setup.
-
-## Validation status
-
-Both DLLs were compiled from these packaged sources on the reporter's machine. Python syntax/imports and CLI help were checked. The new standalone wrapper has **not been live-tested in a match**, because the game installation was removed. Evidence is from earlier tests of the retained implementation, not a fresh test of this package. Do not interpret successful compilation as confirmation of runtime compatibility or exploit scope.
-
-A complete minimap/UI outcome also depends on the game's rendering widgets. The report distinguishes native state transitions from historical PIP/minimap observations.
-
-## Troubleshooting
-
-- SHA256 mismatch: unsupported binary; stop and verify the reference build.
-- No game / multiple processes: enter a match or specify the correct test PID.
-- Access denied: Python must be allowed to access the test process; check whether the two processes run at different privilege levels.
-- Missing DLL: run the build script; commit contents intentionally exclude precompiled binaries.
-- Missing thread identity / callback timeout: ensure the match is active and rendering, with no attached debugger or competing hooks; restart after failed initialization.
-- State changes but no icons: inspect world rendering and PIP separately; do not assume all game widgets refresh identically.
-
-No account credentials, local bridge tokens, player logs, or game binaries are included. MinHook remains under its bundled license. No blanket license is asserted over the original project/engine-related material; consult the maintainers before redistribution beyond this disclosure.
+AI assisted with the code analysis, parts of the implementation, and the writing of this article. The source files and recorded diagnostics are included so the technical claims can be checked directly.
