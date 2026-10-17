@@ -78,6 +78,10 @@ A separate OFF/ON/OFF check kept `ctrl_team=12` throughout. Another refresh chec
 
 These are separate checks. The original values are in [recorded-checks.json](evidence/recorded-checks.json). They show local state changes; they do not establish what the server or other clients observed.
 
+## Download
+
+[Download the Windows test ZIP](https://github.com/crossgamervn-ux/bar-xray/releases/latest) — includes DLLs, Python, and the AX widget. See [QUICKSTART.md](QUICKSTART.md) for the short install/test steps.
+
 ## Build and try it
 
 The retained code targets **Windows x64, Recoil 2026.07.04**, with a specific executable fingerprint checked by `engine_support.py`. The offsets are not portable to another build.
