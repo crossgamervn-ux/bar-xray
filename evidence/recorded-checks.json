@@ -1,0 +1,67 @@
+{
+  "luaui-diagnostic.json": {
+    "spectating": 0,
+    "full_view": 1,
+    "full_read": 1,
+    "ctrl_team": 0,
+    "read_team": -2,
+    "read_ally_team": -2,
+    "select_team": 0
+  },
+  "ax-v2-validation.json": {
+    "before": {
+      "ok": true,
+      "status": "ready",
+      "value": false,
+      "full_read": false,
+      "read_ally_team": 1,
+      "ctrl_team": 12,
+      "backend": "cpp_v2"
+    },
+    "off": {
+      "ok": true,
+      "status": "ready",
+      "value": false,
+      "full_read": false,
+      "read_ally_team": 1,
+      "ctrl_team": 12,
+      "backend": "cpp_v2",
+      "invalid_icons_before": 0,
+      "invalid_icons_after": 0,
+      "units": 0
+    },
+    "on": {
+      "ok": true,
+      "status": "ready",
+      "value": true,
+      "full_read": true,
+      "read_ally_team": -2,
+      "ctrl_team": 12,
+      "backend": "cpp_v2",
+      "invalid_icons_before": 0,
+      "invalid_icons_after": 0,
+      "units": 0
+    },
+    "restored": {
+      "ok": true,
+      "status": "ready",
+      "value": false,
+      "full_read": false,
+      "read_ally_team": 1,
+      "ctrl_team": 12,
+      "backend": "cpp_v2",
+      "invalid_icons_before": 0,
+      "invalid_icons_after": 0,
+      "units": 0
+    }
+  },
+  "refresh-v2-result.json": {
+    "status": 0,
+    "invalid_icons_before": 8,
+    "invalid_icons_after": 0,
+    "units": 9,
+    "previous_value": 0,
+    "value": 1,
+    "executed_on_expected_thread": true
+  }
+}
